@@ -12,11 +12,11 @@ The most direct approach would be to send the raw audio straight to a multimodal
 
 **The cost problem with sending audio directly:**
 
-| Approach | What gets billed | Typical cost per 10-min clip |
-| --- | --- | --- |
-| Raw audio → multimodal LLM | Every second of audio as tokens | High (audio tokens are priced at a significant premium) |
-| Full transcript → LLM | Every word in the transcript, unfiltered | Medium (~1,500–2,500 tokens for 10 min of speech) |
-| **This pipeline** | Only keyword-matched segments + surrounding context | Low (often 100–400 tokens sent to Claude) |
+| Approach                   | What gets billed                                    | Typical cost per 10-min clip                            |
+| -------------------------- | --------------------------------------------------- | ------------------------------------------------------- |
+| Raw audio → multimodal LLM | Every second of audio as tokens                     | High (audio tokens are priced at a significant premium) |
+| Full transcript → LLM      | Every word in the transcript, unfiltered            | Medium (~1,500–2,500 tokens for 10 min of speech)       |
+| **This pipeline**          | Only keyword-matched segments + surrounding context | Low (often 100–400 tokens sent to Claude)               |
 
 **The three-stage filter:**
 
