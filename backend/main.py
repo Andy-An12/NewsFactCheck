@@ -1,11 +1,12 @@
 import os
 import uuid
 import asyncio
+import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile, BackgroundTasks
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,17 +18,13 @@ from backend.pipeline.fact_checker import fact_check_claims
 load_dotenv()
 
 BASE_DIR = Path(__file__).parent
-UPLOAD_DIR = BASE_DIR / "uploads"
-OUTPUT_DIR = BASE_DIR / "output"
-UPLOAD_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 jobs = {}
 
 
-async def run_pipeline(job_id: str, audio_path: str, keyword: str):
+async def run_pipeline(job_id: str, audio_path: str, keyword: str, api_key: str):
     job = jobs[job_id]
     try:
         job.status = JobStatus.TRANSCRIBING
@@ -40,28 +37,24 @@ async def run_pipeline(job_id: str, audio_path: str, keyword: str):
         evidence = find_keyword_hits(segments, keyword)
         job.evidence = evidence
 
+        job.status = JobStatus.ANALYZING
         job.progress = 80
-        fact_checks = fact_check_claims(keyword, segments, ANTHROPIC_API_KEY)
+        fact_checks = await asyncio.to_thread(fact_check_claims, keyword, segments, evidence, api_key)
         job.fact_checks = fact_checks
 
         job.status = JobStatus.COMPLETED
         job.progress = 100
         job.keyword = keyword
 
-        OUTPUT_DIR.mkdir(exist_ok=True)
-        out = OUTPUT_DIR / job_id
-        out.mkdir(exist_ok=True)
-        (out / "result.json").write_text(__import__('json').dumps({
-            "job_id": job_id,
-            "keyword": keyword,
-            "evidence": evidence,
-            "fact_checks": fact_checks,
-            "transcript": segments,
-        }, ensure_ascii=False, indent=2), encoding='utf-8')
-
     except Exception as exc:
         job.status = JobStatus.FAILED
         job.error_msg = str(exc)
+    finally:
+        # One-shot: the uploaded file is only needed for transcription
+        try:
+            os.remove(audio_path)
+        except OSError:
+            pass
 
 
 app = FastAPI(title="NewsFactCheck")
@@ -69,16 +62,25 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 
 @app.post("/api/analyze")
-async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...), keyword: str = ""):
+async def analyze(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    keyword: str = Form(""),
+    api_key: str = Form(""),
+):
     if not file.filename.lower().endswith((".mp3", ".wav", ".m4a", ".mp4", ".mov", ".webm")):
         raise HTTPException(400, "Unsupported file format.")
     if not keyword.strip():
         raise HTTPException(400, "Please enter the keyword you want to search for.")
+    api_key = api_key.strip() or ANTHROPIC_API_KEY
+    if not api_key:
+        raise HTTPException(400, "Enter your Anthropic API key to run the fact-check.")
 
     job_id = str(uuid.uuid4())[:8]
-    audio_path = str(UPLOAD_DIR / f"{job_id}_{file.filename}")
-    with open(audio_path, "wb") as f:
+    suffix = Path(file.filename).suffix
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
         f.write(await file.read())
+        audio_path = f.name
 
     jobs[job_id] = JobState(
         job_id=job_id,
@@ -90,7 +92,7 @@ async def analyze(background_tasks: BackgroundTasks, file: UploadFile = File(...
         keyword=keyword,
     )
 
-    background_tasks.add_task(run_pipeline, job_id, audio_path, keyword)
+    background_tasks.add_task(run_pipeline, job_id, audio_path, keyword, api_key)
     return JSONResponse({"job_id": job_id, "message": "Analysis started."})
 
 

@@ -28,7 +28,8 @@ type ResultResponse = {
 };
 
 export default function App() {
-    const [keyword, setKeyword] = useState('U.S.-Iran war background and related context');
+    const [keyword, setKeyword] = useState('inflation');
+    const [apiKey, setApiKey] = useState('');
     const [file, setFile] = useState<File | null>(null);
     const [jobId, setJobId] = useState('');
     const [status, setStatus] = useState('idle');
@@ -40,10 +41,15 @@ export default function App() {
             alert('Please choose an audio or video file first.');
             return;
         }
+        if (!apiKey.trim()) {
+            alert('Please enter your Anthropic API key.');
+            return;
+        }
 
         const form = new FormData();
         form.append('file', file);
         form.append('keyword', keyword);
+        form.append('api_key', apiKey.trim());
 
         const res = await fetch(`${API}/analyze`, { method: 'POST', body: form });
         const data = await res.json();
@@ -80,8 +86,8 @@ export default function App() {
     }, [jobId]);
 
     const confidenceLabel = useMemo(() => {
-        if (!result) return 'Ready';
-        return result.fact_checks.length ? 'Fact-check ready' : 'Keyword matches ready';
+        if (!result) return 'Ready to analyze';
+        return result.fact_checks.length ? 'Verdicts ready' : 'Keyword matches found';
     }, [result]);
 
     return (
@@ -89,8 +95,8 @@ export default function App() {
             <section style={styles.hero}>
                 <div>
                     <p style={styles.eyebrow}>NewsFactCheck</p>
-                    <h1 style={styles.title}>Find where a keyword appears and verify the claim with AI.</h1>
-                    <p style={styles.subtitle}>Upload audio or video, search for the idea you care about, and review AI fact-check evidence for each claim.</p>
+                    <h1 style={styles.title}>Find every moment a keyword is spoken — and check if it’s true.</h1>
+                    <p style={styles.subtitle}>Upload a video or audio file and enter a keyword. We locate each segment where the keyword is spoken, then fact-check what the speaker said there against the web — because spoken content sometimes gets the facts wrong.</p>
                 </div>
                 <div style={styles.badge}>{confidenceLabel}</div>
             </section>
@@ -99,6 +105,8 @@ export default function App() {
                 <AnalysisForm
                     keyword={keyword}
                     onKeywordChange={setKeyword}
+                    apiKey={apiKey}
+                    onApiKeyChange={setApiKey}
                     onFileSelect={setFile}
                     onAnalyze={analyze}
                 />
